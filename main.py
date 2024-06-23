@@ -56,7 +56,7 @@ while True:
     if target == 0 or total >= target:
         remain_mins = 0
         remain_secs = 0
-    elif rolling_average == 0:
+    elif rolling_average < 1:
         remain_mins = 999
         remain_secs = 99
     else:
