@@ -1,107 +1,135 @@
 #!python
 import ltr390
 import utime
+import uasyncio as asyncio
 from machine import Pin, I2C, PWM
 from PiicoDev_SSD1306 import *
 from micropython import const
 import math
 from borked_keypad import BorkedKeypad
 
-## TODO for buzzer
-# Need a 330 ohm resistor to keep current just under 10 mA
-buzzer = PWM(Pin(9))
-buzzer.duty(0)
-buzzer.freq(4000)  # Apparently the optimal frequency for this unit
 
-# Set the pin number for the RGB LED
-rgb_led_num = const(21)
+class UVMeter:
+    def __init__(self):
+        # Need a 330 ohm resistor to keep current just under 10 mA
+        self.buzzer = PWM(Pin(9))
+        self.buzzer.duty(0)
+        self.buzzer.freq(4000)  # Apparently the optimal frequency for this unit
 
-# Note for OLED piicodev
-# blue = SDA (pin 2)
-# yellow = SCL (pin 1)
+        # Set the pin number for the RGB LED
+        self.rgb_led_num = const(21)
 
-# The red push-button
-push_button = Pin(4, Pin.IN, Pin.PULL_DOWN)
+        # Note for OLED piicodev
+        # blue = SDA (pin 2)
+        # yellow = SCL (pin 1)
 
-# This screen is 128x64
-# And the font is 8x8
-display = create_PiicoDev_SSD1306(bus=0, sda=Pin(2), scl=Pin(1))
+        # The red push-button
+        self.push_button = Pin(4, Pin.IN, Pin.PULL_DOWN)
 
-sensor_i2c = I2C(1, scl=Pin(39), sda=Pin(40), freq=100_000)
-ltr = ltr390.LTR390(sensor_i2c)
+        # Give other devices a moment to power up and settle before issuing commands
+        utime.sleep_ms(50)
 
-ltr.set_uvs()
-ltr.set_gain(ltr390.eGain6)
-ltr.set_measure_rate(ltr390.e18bit, ltr390.e100ms)
+        # This screen is 128x64
+        # And the font is 8x8
+        self.display = create_PiicoDev_SSD1306(bus=0, sda=Pin(2), scl=Pin(1))
+        self.display.fill(1)
+        self.display.text("UV Meter", 32, 28, 0)
+        self.display.show()
 
-display.fill(1)
-display.text("UV Meter", 32, 28, 0)
-display.show()
-utime.sleep_ms(1000)
+        self.sensor_i2c = I2C(1, scl=Pin(39), sda=Pin(40), freq=100_000)
+        self.ltr = ltr390.LTR390(self.sensor_i2c)
 
-keypad = BorkedKeypad()
-total = 0.0
-start_time = utime.time()
-target_string = ""
-target = 0
-warning_flash = 0
-rolling_average = ltr.uvs() / 256.0
-remain_mins = 0
-remain_secs = 0
-cycle_delay = const(300)  # milliseconds
+        self.ltr.set_uvs()
+        self.ltr.set_gain(ltr390.eGain6)
+        self.ltr.set_measure_rate(ltr390.e18bit, ltr390.e100ms)
 
-while True:
-    v = ltr.uvs() / 8192.0
-    total = total + v
-    elapsed_time = utime.time() - start_time
-    elapsed_minutes = math.floor(elapsed_time / 60.0)
-    elapsed_seconds = elapsed_time % 60
-    rolling_average = (rolling_average * 0.97) + (v * 0.03)
-    if target == 0 or total >= target:
-        remain_mins = 0
-        remain_secs = 0
-    elif rolling_average < 1:
-        remain_mins = 999
-        remain_secs = 99
-    else:
-        amt_remain = (target - total) / rolling_average / (1000 / cycle_delay)
-        remain_mins = math.floor(amt_remain / 60.0)
-        remain_secs = int(amt_remain) % 60
+        utime.sleep_ms(1000)
 
-    display.fill(0)
-    display.text("Instant: {:>7.3f}".format(v), 0, 0, 1)
-    display.text("Total: {:>9.0f}".format(total), 0, 10, 1)
-    display.text(f"Target: {target}", 0, 20, 1)
-    display.text(
-        "Elapsed: {:d}:{:02d}".format(elapsed_minutes, elapsed_seconds), 0, 30, 1
-    )
-    display.text("Remain: {:d}:{:02d}".format(remain_mins, remain_secs), 0, 40, 1)
+        self.keypad = BorkedKeypad()
+        self.total = 0.0
+        self.start_time = utime.time()
+        self.target_string = ""
+        self.target = 0
+        self.warning_flash = 0
+        self.rolling_average = self.ltr.uvs() / 256.0
+        self.remain_mins = 0
+        self.remain_secs = 0
+        self.cycle_delay = const(500)  # milliseconds
+        self.cycle_inverse = 1000 / self.cycle_delay
 
-    if target > 0 and total >= target:
-        display.fill_rect(0, 50, 127, 63, warning_flash)
-        if warning_flash == 0:
-            buzzer.duty(512)
-            warning_flash = 1
-        else:
-            buzzer.duty(0)
-            warning_flash = 0
+    async def sensorReadLoop(self):
+        while True:
+            v = self.ltr.uvs() / 8192.0
+            self.total = self.total + v
+            elapsed_time = utime.time() - self.start_time
+            elapsed_minutes = math.floor(elapsed_time / 60.0)
+            elapsed_seconds = elapsed_time % 60
+            self.rolling_average = (self.rolling_average * 0.95) + (v * 0.05)
+            if self.target == 0 or self.total >= self.target:
+                remain_mins = 0
+                remain_secs = 0
+            elif self.rolling_average < 1:
+                remain_mins = 999
+                remain_secs = 99
+            else:
+                amt_remain = (
+                    (self.target - self.total)
+                    / self.rolling_average
+                    / self.cycle_inverse
+                )
+                remain_mins = math.floor(amt_remain / 60.0)
+                remain_secs = int(amt_remain) % 60
 
-    display.show()
+            self.display.fill(0)
+            self.display.text("Instant: {:>7.3f}".format(v), 0, 0, 1)
+            self.display.text("Total: {:>9.0f}".format(self.total), 0, 10, 1)
+            self.display.text(f"Target: {self.target}", 0, 20, 1)
+            self.display.text(
+                "Elapsed: {:d}:{:02d}".format(elapsed_minutes, elapsed_seconds),
+                0,
+                30,
+                1,
+            )
+            self.display.text(
+                "Remain: {:d}:{:02d}".format(remain_mins, remain_secs), 0, 40, 1
+            )
 
-    # Check for the reset button being pushed:
-    if push_button.value() == 1:
-        total = 0.0
-        start_time = utime.time()
-        target = 0
-        target_string = ""
-        buzzer.duty(0)
+            if self.target > 0 and self.total >= self.target:
+                self.display.fill_rect(0, 50, 127, 63, self.warning_flash)
+                if self.warning_flash == 0:
+                    self.buzzer.duty(512)
+                    self.warning_flash = 1
+                else:
+                    self.buzzer.duty(0)
+                    self.warning_flash = 0
 
-    # Check for keypad entry:
-    key = keypad.keypresses_only()
-    if key != None and key >= "0" and key <= "9":
-        target_string = target_string + key
-        target = int(target_string)
-        # Need to reset the buzzer here, in case the target was increased
-        buzzer.duty(0)
+            self.display.show()
+            await asyncio.sleep_ms(self.cycle_delay)
 
-    utime.sleep_ms(cycle_delay)
+    async def buttonReadLoop(self):
+        while True:
+            # Check for the reset button being pushed:
+            if self.push_button.value() == 1:
+                self.total = 0.0
+                self.start_time = utime.time()
+                self.target = 0
+                self.target_string = ""
+                self.buzzer.duty(0)
+
+            # Check for keypad entry:
+            key = self.keypad.keypresses_only()
+            if key != None and key >= "0" and key <= "9":
+                self.target_string = self.target_string + key
+                self.target = int(self.target_string)
+                # Need to reset the buzzer here, in case the target was increased
+                self.buzzer.duty(0)
+
+            await asyncio.sleep_ms(100)
+
+
+try:
+    uvm = UVMeter()
+    asyncio.create_task(uvm.sensorReadLoop())
+    asyncio.run(uvm.buttonReadLoop())
+finally:
+    asyncio.new_event_loop()
