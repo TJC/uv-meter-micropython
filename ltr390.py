@@ -1,5 +1,9 @@
+# DFRobot SEN0540 LTR390 UV Sensor library
+# by Toby Corkindale https://github.com/TJC/
+# Released under the Apache 2.0 license.
+#
 # This library is for the DFRobot LTR390 UV Sensor.
-# It is not compatible with regular LTR390 chips -- I don't know why it is
+# It is NOT compatible with regular LTR390 chips -- I don't know why it is
 # different.
 # Most notably, when writing to a register, it has to be sent with a +5 offset
 # to the address. The data written must be two bytes, with the second byte
@@ -45,12 +49,13 @@ eGain6 = const(2)  # Gain of 6
 eGain9 = const(3)  # Gain of 9
 eGain18 = const(4)  # Gain of 18
 
-e20bit = const(0)  # 20-bit data
-e19bit = const(16)  # 19-bit data
-e18bit = const(32)  # 18-bit data
-e17bit = const(48)  # 17-bit data
-e16bit = const(64)  # 16-bit data
-e13bit = const(80)  # 13-bit data
+# Note when selecting resolution and time frames -- the higher the
+# resolution, the longer the minimum latency.
+e20bit = const(0)  # 20-bit data, min time 400ms
+e19bit = const(16)  # 19-bit data, min time 200ms
+e18bit = const(32)  # 18-bit data, min time 100ms
+e17bit = const(48)  # 17-bit data, min time 50ms
+e16bit = const(64)  # 16-bit data, min time 25ms
 
 e25ms = const(0)  # Sampling time of 25ms
 e50ms = const(1)  # Sampling time of 50ms
@@ -91,9 +96,9 @@ class LTR390:
         self.i2c.writeto_mem(DEV_ADDRESS, REG_GAIN + 5, bytes([gainLevel, 0]))
 
     def uvs(self):
-        buffer = self.i2c.readfrom_mem(DEV_ADDRESS, REG_UVS_DATA_LOW, 2)
-        return buffer[0] << 8 + buffer[1]
+        buffer = self.i2c.readfrom_mem(DEV_ADDRESS, REG_UVS_DATA_LOW, 4)
+        return (buffer[3] << 24) + (buffer[2] << 16) + (buffer[1] << 8) + buffer[0]
 
     def als(self):
-        buffer = self.i2c.readfrom_mem(DEV_ADDRESS, REG_ALS_DATA_LOW, 2)
-        return buffer[0] << 8 + buffer[1]
+        buffer = self.i2c.readfrom_mem(DEV_ADDRESS, REG_ALS_DATA_LOW, 4)
+        return (buffer[3] << 24) + (buffer[2] << 16) + (buffer[1] << 8) + buffer[0]
