@@ -32,8 +32,12 @@ ltr = ltr390.LTR390(sensor_i2c)
 
 ltr.set_uvs()
 ltr.set_gain(ltr390.eGain6)
-ltr.set_measure_rate(ltr390.e18bit, ltr390.e200ms)
-utime.sleep_ms(500)  # initial reading can be off unless we do this
+ltr.set_measure_rate(ltr390.e18bit, ltr390.e100ms)
+
+display.fill(1)
+display.text("UV Meter", 32, 28, 0)
+display.show()
+utime.sleep_ms(1000)
 
 keypad = BorkedKeypad()
 total = 0.0
@@ -47,7 +51,7 @@ remain_secs = 0
 cycle_delay = const(300)  # milliseconds
 
 while True:
-    v = ltr.uvs() / 256.0
+    v = ltr.uvs() / 8192.0
     total = total + v
     elapsed_time = utime.time() - start_time
     elapsed_minutes = math.floor(elapsed_time / 60.0)
@@ -65,7 +69,7 @@ while True:
         remain_secs = int(amt_remain) % 60
 
     display.fill(0)
-    display.text("Instant: {:>7.1f}".format(v), 0, 0, 1)
+    display.text("Instant: {:>7.3f}".format(v), 0, 0, 1)
     display.text("Total: {:>9.0f}".format(total), 0, 10, 1)
     display.text(f"Target: {target}", 0, 20, 1)
     display.text(
@@ -75,14 +79,12 @@ while True:
 
     if target > 0 and total >= target:
         display.fill_rect(0, 50, 127, 63, warning_flash)
-        buzzer.duty(512 * warning_flash)
         if warning_flash == 0:
+            buzzer.duty(512)
             warning_flash = 1
         else:
+            buzzer.duty(0)
             warning_flash = 0
-    else:
-        # Need to reset the buzzer here, in case the target was increased
-        buzzer.duty(0)
 
     display.show()
 
@@ -99,5 +101,7 @@ while True:
     if key != None and key >= "0" and key <= "9":
         target_string = target_string + key
         target = int(target_string)
+        # Need to reset the buzzer here, in case the target was increased
+        buzzer.duty(0)
 
     utime.sleep_ms(cycle_delay)
