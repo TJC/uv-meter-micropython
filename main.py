@@ -59,26 +59,26 @@ class UVMeter:
 
     async def sensorReadLoop(self):
         while True:
-            v = self.ltr.uvs() / 8192.0
+            v = self.ltr.uvs() / 1000.0
             self.total = self.total + v
             elapsed_time = utime.time() - self.start_time
             elapsed_minutes = math.floor(elapsed_time / 60.0)
             elapsed_seconds = elapsed_time % 60
             self.rolling_average = (self.rolling_average * 0.95) + (v * 0.05)
             if self.target == 0 or self.total >= self.target:
-                remain_mins = 0
-                remain_secs = 0
-            elif self.rolling_average < 1:
-                remain_mins = 999
-                remain_secs = 99
+                self.remain_mins = 0
+                self.remain_secs = 0
+            elif self.rolling_average < 0.01:
+                self.remain_mins = 999
+                self.remain_secs = 99
             else:
                 amt_remain = (
                     (self.target - self.total)
                     / self.rolling_average
                     / self.cycle_inverse
                 )
-                remain_mins = math.floor(amt_remain / 60.0)
-                remain_secs = int(amt_remain) % 60
+                self.remain_mins = min(999, math.floor(amt_remain / 60.0))
+                self.remain_secs = int(amt_remain) % 60
 
             self.display.fill(0)
             self.display.text("Instant: {:>7.3f}".format(v), 0, 0, 1)
@@ -91,7 +91,10 @@ class UVMeter:
                 1,
             )
             self.display.text(
-                "Remain: {:d}:{:02d}".format(remain_mins, remain_secs), 0, 40, 1
+                "Remain: {:d}:{:02d}".format(self.remain_mins, self.remain_secs),
+                0,
+                40,
+                1,
             )
 
             if self.target > 0 and self.total >= self.target:
