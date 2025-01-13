@@ -59,7 +59,8 @@ class UVMeter:
 
     async def sensorReadLoop(self):
         while True:
-            v = self.ltr.uvs() / 1000.0
+            # The divisor here kinda sets the scaling overall
+            v = self.ltr.uvs() / 512.0
             self.total = self.total + v
             elapsed_time = utime.time() - self.start_time
             elapsed_minutes = math.floor(elapsed_time / 60.0)
